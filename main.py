@@ -42,6 +42,8 @@ HELP_MSG = """\
   [yellow]:model[/yellow]                Show current model
   [yellow]:yolo[/yellow]                 Toggle YOLO mode (code analysis)
   [yellow]:analyze[/yellow]              Analyze current project structure
+  [yellow]:read <file>[/yellow]          Read a specific file and add to context
+  [yellow]:files[/yellow]                List all files in current project
   [yellow]:project[/yellow]              Show current project path
   [yellow]:project <path>[/yellow]       Switch to a different project
   [yellow]:cd <path>[/yellow]            Change directory (alias for :project)
@@ -1011,13 +1013,127 @@ class CLI:
                     tree = self.code_analyzer.get_project_tree()
                     self.console.print(tree)
                     
-                    # Add summary to chat context
+                    # Generate comprehensive summary with code samples
                     summary = self.code_analyzer.generate_summary()
+                    
+                    # Add sample code from important files
+                    self.console.print("\n[cyan]Reading key files for AI context...[/cyan]")
+                    code_samples = []
+                    
+                    # Prioritize important files (max 10 files, 100 lines each)
+                    important_patterns = [
+                        'README.md', 'package.json', 'tsconfig.json', 'vite.config',
+                        'main.', 'index.', 'App.', 'server.', 'api.', 'config.',
+                        'schema.', 'routes.', 'middleware.'
+                    ]
+                    
+                    sampled_files = []
+                    for pattern in important_patterns:
+                        matching = [f for f in self.code_analyzer.files if pattern in f and f not in sampled_files]
+                        if matching:
+                            sampled_files.append(matching[0])
+                        if len(sampled_files) >= 10:
+                            break
+                    
+                    # Add any remaining important files
+                    if len(sampled_files) < 10:
+                        for file in self.code_analyzer.files[:20]:
+                            if file not in sampled_files:
+                                sampled_files.append(file)
+                            if len(sampled_files) >= 10:
+                                break
+                    
+                    for file in sampled_files:
+                        content = self.code_analyzer.read_file_content(file, max_lines=100)
+                        if content and not content.startswith("Error"):
+                            code_samples.append(f"\n--- {file} ---\n{content}")
+                    
+                    # Combine summary with code samples
+                    full_context = f"{summary}\n\n{'=' * 60}\nCODE SAMPLES\n{'=' * 60}\n" + "\n".join(code_samples)
+                    
+                    # Add to chat context
                     history.append({
                         "role": "system",
-                        "content": f"Project analysis:\n{summary}\n\nYou can now help with questions about this codebase."
+                        "content": f"Project analysis complete. You now have full context of this codebase:\n\n{full_context}\n\nYou can now answer questions about this code, suggest improvements, find bugs, explain architecture, etc."
                     })
-                    self.console.print("\n[green]✓ Project context added to conversation[/green]")
+                    self.console.print(f"\n[green]✓ Project context added ({len(sampled_files)} files analyzed)[/green]")
+                    self.console.print("[dim]You can now ask questions about the codebase![/dim]")
+        
+        # Read specific file command
+        elif command in ["read", "cat", "show"]:
+            if not self.yolo_mode:
+                self.console.print("[bold yellow]YOLO mode is not enabled. Use :yolo to enable it first.[/bold yellow]")
+            elif not args:
+                self.console.print("[bold red]Usage: :read <filename>[/bold red]")
+                self.console.print("[dim]Example: :read src/App.tsx[/dim]")
+            else:
+                if not self.code_analyzer:
+                    self.code_analyzer = CodeAnalyzer(self.current_project or os.getcwd(), self.console)
+                    self.code_analyzer.scan_project()
+                
+                filename = ' '.join(args)
+                
+                # Try to find the file (support partial matches)
+                matching_files = [f for f in self.code_analyzer.files if filename in f]
+                
+                if not matching_files:
+                    self.console.print(f"[bold red]File not found: {filename}[/bold red]")
+                    self.console.print("[dim]Use :files to list all files[/dim]")
+                elif len(matching_files) > 1:
+                    self.console.print(f"[bold yellow]Multiple files match '{filename}':[/bold yellow]")
+                    for i, f in enumerate(matching_files[:10], 1):
+                        self.console.print(f"  {i}. {f}")
+                    self.console.print("[dim]Please be more specific[/dim]")
+                else:
+                    file_to_read = matching_files[0]
+                    content = self.code_analyzer.read_file_content(file_to_read, max_lines=500)
+                    
+                    if content:
+                        self.console.print(Panel(
+                            f"[dim]{content}[/dim]",
+                            title=f"📄 {file_to_read}",
+                            border_style="cyan"
+                        ))
+                        
+                        # Add to context
+                        history.append({
+                            "role": "system",
+                            "content": f"File: {file_to_read}\n\n{content}"
+                        })
+                        self.console.print(f"[green]✓ File content added to context[/green]")
+                    else:
+                        self.console.print(f"[bold red]Could not read file: {file_to_read}[/bold red]")
+        
+        # List files command
+        elif command in ["files", "ls"]:
+            if not self.yolo_mode:
+                self.console.print("[bold yellow]YOLO mode is not enabled. Use :yolo to enable it first.[/bold yellow]")
+            else:
+                if not self.code_analyzer:
+                    self.code_analyzer = CodeAnalyzer(self.current_project or os.getcwd(), self.console)
+                    self.code_analyzer.scan_project()
+                
+                if args:
+                    # Filter files by pattern
+                    pattern = ' '.join(args).lower()
+                    filtered = [f for f in self.code_analyzer.files if pattern in f.lower()]
+                    self.console.print(f"[bold]Files matching '{pattern}':[/bold] ({len(filtered)} files)")
+                    for f in filtered[:50]:
+                        self.console.print(f"  [green]{f}[/green]")
+                    if len(filtered) > 50:
+                        self.console.print(f"[dim]  ... and {len(filtered) - 50} more[/dim]")
+                else:
+                    # List all files
+                    self.console.print(f"[bold]All files:[/bold] ({len(self.code_analyzer.files)} files)")
+                    for f in self.code_analyzer.files[:50]:
+                        ext = os.path.splitext(f)[1]
+                        if ext in ['.tsx', '.ts', '.jsx', '.js', '.py']:
+                            self.console.print(f"  [green]{f}[/green]")
+                        else:
+                            self.console.print(f"  [cyan]{f}[/cyan]")
+                    if len(self.code_analyzer.files) > 50:
+                        self.console.print(f"[dim]  ... and {len(self.code_analyzer.files) - 50} more[/dim]")
+                    self.console.print("\n[dim]Use :files <pattern> to filter[/dim]")
         
         # Project/CD command
         elif command in ["project", "cd"]:
