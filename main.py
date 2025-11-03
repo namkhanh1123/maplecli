@@ -165,7 +165,7 @@ class ChatClient:
         assistant_response = ""
         
         # Show a subtle status indicator
-        self.console.print("[dim cyan]◌ Thinking...[/dim cyan]", end="", flush=True)
+        self.console.print("[dim cyan]◌ Thinking...[/dim cyan]", end="")
         
         for attempt in range(self.max_retries):
             try:
@@ -174,10 +174,10 @@ class ChatClient:
                                  timeout=self.timeout) as response:
                     if response.status_code == 200:
                         # Clear the "Thinking..." message completely
-                        self.console.print("\r" + " " * 50 + "\r", end="", flush=True)
+                        self.console.print("\r" + " " * 50 + "\r", end="")
                         
                         # Print the assistant label before streaming
-                        self.console.print("[bold green]Assistant:[/bold green] ", end="", flush=True)
+                        self.console.print("[bold green]Assistant:[/bold green] ", end="")
                         
                         for chunk in response.iter_lines():
                             if chunk:
@@ -614,7 +614,7 @@ class CLI:
     def get_user_input(self) -> str:
         """Gets user input with support for both single-line and multiline."""
         print()  # Add spacing before prompt
-        self.console.print("[bold blue]You:[/bold blue] ", end="", flush=True)
+        self.console.print("[bold blue]You:[/bold blue] ", end="")
         
         try:
             first_line = input()
