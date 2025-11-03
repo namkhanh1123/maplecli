@@ -6,18 +6,21 @@ import json
 import stat
 import platform
 import random
-from typing import List, Dict, Optional, Tuple
+import pathlib
+from typing import List, Dict, Optional, Tuple, Set
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.live import Live
 from rich.text import Text
+from rich.tree import Tree
 
 WELCOME_MSG = """\
 [bold cyan]Welcome to MapleCLI - OpenAI Compatible Chat Interface[/bold cyan]
 
 Type your message to chat with the AI.
 Type [yellow]:help[/yellow] or [yellow]:h[/yellow] to see available commands.
+Type [yellow]:yolo[/yellow] to enable code analysis mode! 🚀
 
 [dim]Press Ctrl+C to interrupt, Ctrl+D for multiline input.[/dim]
 """
@@ -37,6 +40,11 @@ HELP_MSG = """\
   [yellow]:save <file>[/yellow]          Save conversation to file
   [yellow]:load <file>[/yellow]          Load conversation from file
   [yellow]:model[/yellow]                Show current model
+  [yellow]:yolo[/yellow]                 Toggle YOLO mode (code analysis)
+  [yellow]:analyze[/yellow]              Analyze current project structure
+  [yellow]:project[/yellow]              Show current project path
+  [yellow]:project <path>[/yellow]       Switch to a different project
+  [yellow]:cd <path>[/yellow]            Change directory (alias for :project)
   
 [bold]Configuration Keys:[/bold]
   - temperature (0.0-2.0)
@@ -45,6 +53,10 @@ HELP_MSG = """\
 [bold]Input Tips:[/bold]
   - End line with \\ for multiline input
   - Press Ctrl+D to enter multiline mode
+  
+[bold]YOLO Mode:[/bold]
+  When enabled, AI can analyze your source code and provide insights.
+  Use :analyze to scan the project structure.
 """
 
 class ConfigManager:
@@ -55,6 +67,7 @@ class ConfigManager:
         self.config_file = os.path.join(self.config_dir, "config.json")
         self.api_base: Optional[str] = None
         self.api_key: Optional[str] = None
+        self.recent_projects: List[str] = []
 
     def load_config(self) -> None:
         """Loads configuration from file or environment variables."""
@@ -64,6 +77,7 @@ class ConfigManager:
                     config = json.load(f)
                     self.api_base = config.get("OPENAI_API_BASE")
                     self.api_key = config.get("OPENAI_API_KEY")
+                    self.recent_projects = config.get("recent_projects", [])
                 except json.JSONDecodeError as e:
                     self.console.print(f"[bold yellow]Warning: Config file corrupted ({e}). Using environment variables or prompting.[/bold yellow]")
 
@@ -81,7 +95,11 @@ class ConfigManager:
         """Saves API configuration to the config file with proper permissions."""
         os.makedirs(self.config_dir, exist_ok=True)
         with open(self.config_file, 'w') as f:
-            json.dump({"OPENAI_API_BASE": self.api_base, "OPENAI_API_KEY": self.api_key}, f)
+            json.dump({
+                "OPENAI_API_BASE": self.api_base, 
+                "OPENAI_API_KEY": self.api_key,
+                "recent_projects": self.recent_projects[-10:]  # Keep last 10 projects
+            }, f)
         
         # Set restrictive permissions on config file (owner read/write only)
         try:
@@ -91,6 +109,14 @@ class ConfigManager:
             pass
         
         self.console.print(f"Configuration saved to [green]{self.config_file}[/green]")
+    
+    def add_recent_project(self, project_path: str) -> None:
+        """Adds a project to the recent projects list."""
+        abs_path = os.path.abspath(project_path)
+        if abs_path in self.recent_projects:
+            self.recent_projects.remove(abs_path)
+        self.recent_projects.append(abs_path)
+        self.save_config()
 
 class ChatClient:
     """Handles all communication with the OpenAI-compatible API."""
@@ -406,6 +432,149 @@ class ChatClient:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
             return None
 
+class CodeAnalyzer:
+    """Analyzes source code in a project directory."""
+    
+    # Common source code extensions
+    CODE_EXTENSIONS = {
+        '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.cpp', '.c', '.h', '.hpp',
+        '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala', '.r',
+        '.m', '.mm', '.sh', '.bash', '.zsh', '.sql', '.html', '.css', '.scss',
+        '.sass', '.vue', '.svelte', '.json', '.yaml', '.yml', '.xml', '.md'
+    }
+    
+    # Directories to ignore
+    IGNORE_DIRS = {
+        'node_modules', '.git', '.venv', 'venv', 'env', '__pycache__',
+        '.pytest_cache', 'dist', 'build', 'target', '.idea', '.vscode',
+        'vendor', 'tmp', 'temp', '.cache', 'coverage', '.next', 'out'
+    }
+    
+    def __init__(self, project_path: str, console: Console):
+        self.project_path = os.path.abspath(project_path)
+        self.console = console
+        self.files: List[str] = []
+        self.file_stats: Dict[str, int] = {}
+        self.total_lines = 0
+        
+    def scan_project(self) -> Dict[str, any]:
+        """Scans the project directory and collects file information."""
+        if not os.path.exists(self.project_path):
+            self.console.print(f"[bold red]Error: Path does not exist: {self.project_path}[/bold red]")
+            return {}
+        
+        if not os.path.isdir(self.project_path):
+            self.console.print(f"[bold red]Error: Path is not a directory: {self.project_path}[/bold red]")
+            return {}
+        
+        self.files = []
+        self.file_stats = {}
+        self.total_lines = 0
+        
+        with self.console.status(f"[cyan]Scanning {self.project_path}...[/cyan]"):
+            for root, dirs, files in os.walk(self.project_path):
+                # Filter out ignored directories
+                dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS]
+                
+                for file in files:
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext in self.CODE_EXTENSIONS:
+                        filepath = os.path.join(root, file)
+                        rel_path = os.path.relpath(filepath, self.project_path)
+                        self.files.append(rel_path)
+                        
+                        # Count lines
+                        try:
+                            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                                lines = sum(1 for _ in f)
+                                self.total_lines += lines
+                                self.file_stats[ext] = self.file_stats.get(ext, 0) + lines
+                        except:
+                            pass
+        
+        return {
+            'project_path': self.project_path,
+            'total_files': len(self.files),
+            'total_lines': self.total_lines,
+            'file_stats': self.file_stats,
+            'files': self.files[:100]  # Limit to first 100 for display
+        }
+    
+    def get_project_tree(self, max_depth: int = 3) -> Tree:
+        """Creates a visual tree representation of the project structure."""
+        tree = Tree(f"[bold cyan]{os.path.basename(self.project_path)}[/bold cyan]")
+        
+        def add_to_tree(parent_tree: Tree, path: str, current_depth: int):
+            if current_depth >= max_depth:
+                return
+            
+            try:
+                items = sorted(os.listdir(path))
+            except PermissionError:
+                return
+            
+            dirs = [item for item in items if os.path.isdir(os.path.join(path, item)) and item not in self.IGNORE_DIRS]
+            files = [item for item in items if os.path.isfile(os.path.join(path, item))]
+            
+            # Limit display
+            if len(dirs) + len(files) > 20:
+                dirs = dirs[:10]
+                files = files[:10]
+            
+            for d in dirs:
+                dir_path = os.path.join(path, d)
+                branch = parent_tree.add(f"[blue]{d}/[/blue]")
+                add_to_tree(branch, dir_path, current_depth + 1)
+            
+            for f in files:
+                ext = os.path.splitext(f)[1]
+                if ext in self.CODE_EXTENSIONS:
+                    parent_tree.add(f"[green]{f}[/green]")
+                else:
+                    parent_tree.add(f"[dim]{f}[/dim]")
+        
+        add_to_tree(tree, self.project_path, 0)
+        return tree
+    
+    def read_file_content(self, relative_path: str, max_lines: int = 100) -> Optional[str]:
+        """Reads the content of a specific file."""
+        filepath = os.path.join(self.project_path, relative_path)
+        if not os.path.exists(filepath):
+            return None
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()[:max_lines]
+                content = ''.join(lines)
+                remaining = sum(1 for _ in f)
+                if remaining > 0:
+                    content += f"\n... ({remaining} more lines)"
+                return content
+        except Exception as e:
+            return f"Error reading file: {e}"
+    
+    def generate_summary(self) -> str:
+        """Generates a text summary of the project for AI context."""
+        summary_parts = [
+            f"Project: {os.path.basename(self.project_path)}",
+            f"Location: {self.project_path}",
+            f"Total Files: {len(self.files)}",
+            f"Total Lines: {self.total_lines}",
+            "\nFile Types:"
+        ]
+        
+        for ext, lines in sorted(self.file_stats.items(), key=lambda x: x[1], reverse=True):
+            summary_parts.append(f"  {ext}: {lines} lines")
+        
+        summary_parts.append("\nProject Structure:")
+        for file in self.files[:30]:  # First 30 files
+            summary_parts.append(f"  - {file}")
+        
+        if len(self.files) > 30:
+            summary_parts.append(f"  ... and {len(self.files) - 30} more files")
+        
+        return "\n".join(summary_parts)
+
 class CLI:
     """Handles the command-line interface and chat loop."""
     def __init__(self):
@@ -416,6 +585,9 @@ class CLI:
         self.temperature = 0.7
         self.max_tokens: Optional[int] = None
         self.seed: Optional[int] = None  # Random seed for reproducible outputs
+        self.yolo_mode = False  # YOLO mode for code analysis
+        self.current_project: Optional[str] = None
+        self.code_analyzer: Optional[CodeAnalyzer] = None
         
     def clear_screen(self) -> None:
         """Clears the terminal screen."""
@@ -798,6 +970,85 @@ class CLI:
         elif command in ["model"]:
             self.console.print(f"[cyan]Current model: {model}[/cyan]")
             self.console.print("[dim]Note: To change model, restart the chat session[/dim]")
+        
+        # YOLO mode command
+        elif command in ["yolo"]:
+            self.yolo_mode = not self.yolo_mode
+            status = "[bold green]enabled[/bold green]" if self.yolo_mode else "[bold red]disabled[/bold red]"
+            self.console.print(f"YOLO mode {status}")
+            if self.yolo_mode:
+                self.console.print("[dim]AI can now analyze your source code. Use :analyze to scan the project.[/dim]")
+                # Initialize with current directory if not set
+                if not self.current_project:
+                    self.current_project = os.getcwd()
+                    self.code_analyzer = CodeAnalyzer(self.current_project, self.console)
+                    self.console.print(f"[cyan]Current project: {self.current_project}[/cyan]")
+        
+        # Analyze project command
+        elif command in ["analyze", "scan"]:
+            if not self.yolo_mode:
+                self.console.print("[bold yellow]YOLO mode is not enabled. Use :yolo to enable it first.[/bold yellow]")
+            else:
+                if not self.code_analyzer:
+                    self.code_analyzer = CodeAnalyzer(self.current_project or os.getcwd(), self.console)
+                
+                stats = self.code_analyzer.scan_project()
+                
+                if stats:
+                    self.console.print(Panel(
+                        f"[bold]Project Analysis[/bold]\n\n"
+                        f"Location: [cyan]{stats['project_path']}[/cyan]\n"
+                        f"Files: [green]{stats['total_files']}[/green]\n"
+                        f"Lines: [green]{stats['total_lines']:,}[/green]\n\n"
+                        f"[bold]File Types:[/bold]\n" +
+                        "\n".join([f"  {ext}: {lines:,} lines" for ext, lines in sorted(stats['file_stats'].items(), key=lambda x: x[1], reverse=True)]),
+                        title="📊 Code Analysis",
+                        border_style="cyan"
+                    ))
+                    
+                    # Show tree
+                    self.console.print("\n[bold]Project Structure:[/bold]")
+                    tree = self.code_analyzer.get_project_tree()
+                    self.console.print(tree)
+                    
+                    # Add summary to chat context
+                    summary = self.code_analyzer.generate_summary()
+                    history.append({
+                        "role": "system",
+                        "content": f"Project analysis:\n{summary}\n\nYou can now help with questions about this codebase."
+                    })
+                    self.console.print("\n[green]✓ Project context added to conversation[/green]")
+        
+        # Project/CD command
+        elif command in ["project", "cd"]:
+            if args:
+                new_path = ' '.join(args)
+                # Expand ~ and resolve path
+                new_path = os.path.expanduser(new_path)
+                new_path = os.path.abspath(new_path)
+                
+                if os.path.exists(new_path) and os.path.isdir(new_path):
+                    self.current_project = new_path
+                    self.code_analyzer = CodeAnalyzer(self.current_project, self.console)
+                    self.config_manager.add_recent_project(self.current_project)
+                    self.console.print(f"[green]✓ Switched to project: {self.current_project}[/green]")
+                    
+                    if self.yolo_mode:
+                        self.console.print("[dim]Use :analyze to scan this project[/dim]")
+                else:
+                    self.console.print(f"[bold red]Error: Directory not found: {new_path}[/bold red]")
+            else:
+                # Show current project and recent projects
+                if self.current_project:
+                    self.console.print(f"[cyan]Current project: {self.current_project}[/cyan]")
+                else:
+                    self.console.print(f"[cyan]Current directory: {os.getcwd()}[/cyan]")
+                
+                if self.config_manager.recent_projects:
+                    self.console.print("\n[bold]Recent projects:[/bold]")
+                    for i, proj in enumerate(reversed(self.config_manager.recent_projects[-5:]), 1):
+                        self.console.print(f"  {i}. {proj}")
+                    self.console.print("\n[dim]Use :project <path> to switch[/dim]")
             
         # Help command
         elif command in ["help", "h"]:
