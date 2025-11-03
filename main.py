@@ -4,12 +4,48 @@ import requests
 import sys
 import json
 import stat
+import platform
+import random
 from typing import List, Dict, Optional, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.live import Live
 from rich.text import Text
+
+WELCOME_MSG = """\
+[bold cyan]Welcome to MapleCLI - OpenAI Compatible Chat Interface[/bold cyan]
+
+Type your message to chat with the AI.
+Type [yellow]:help[/yellow] or [yellow]:h[/yellow] to see available commands.
+
+[dim]Press Ctrl+C to interrupt, Ctrl+D for multiline input.[/dim]
+"""
+
+HELP_MSG = """\
+[bold]Available Commands:[/bold]
+  [yellow]:help / :h[/yellow]            Show this help message
+  [yellow]:exit / :quit / :q[/yellow]    Exit the chat session
+  [yellow]:clear / :cl[/yellow]          Clear the screen
+  [yellow]:clear-history / :clh[/yellow] Clear conversation history
+  [yellow]:history / :his[/yellow]       Show conversation history
+  [yellow]:seed[/yellow]                 Show current random seed
+  [yellow]:seed <N>[/yellow]             Set random seed to <N>
+  [yellow]:conf[/yellow]                 Show current configuration
+  [yellow]:conf <key>=<value>[/yellow]   Change configuration (e.g., :conf temperature=0.8)
+  [yellow]:reset-conf[/yellow]           Reset configuration to defaults
+  [yellow]:save <file>[/yellow]          Save conversation to file
+  [yellow]:load <file>[/yellow]          Load conversation from file
+  [yellow]:model[/yellow]                Show current model
+  
+[bold]Configuration Keys:[/bold]
+  - temperature (0.0-2.0)
+  - max_tokens (integer)
+  
+[bold]Input Tips:[/bold]
+  - End line with \\ for multiline input
+  - Press Ctrl+D to enter multiline mode
+"""
 
 class ConfigManager:
     """Manages the configuration for the CLI."""
@@ -375,6 +411,14 @@ class CLI:
         self.max_history_messages = 100  # Limit conversation history
         self.temperature = 0.7
         self.max_tokens: Optional[int] = None
+        self.seed: Optional[int] = None  # Random seed for reproducible outputs
+        
+    def clear_screen(self) -> None:
+        """Clears the terminal screen."""
+        if platform.system() == "Windows":
+            os.system("cls")
+        else:
+            os.system("clear")
 
     def run(self) -> None:
         """Runs the main CLI logic."""
@@ -507,9 +551,13 @@ class CLI:
             history.append({"role": "system", "content": system_prompt})
             self.console.print(Panel(system_prompt, title="System Prompt", border_style="yellow"))
 
-        self.console.print("\n[bold green]Interactive chat session started![/bold green]")
-        self.console.print("Type your message and press Enter (or Ctrl+D for multiline input)")
-        self.console.print("Type '/help' for available commands\n")
+        # Display welcome message
+        self.clear_screen()
+        self.console.print(WELCOME_MSG)
+        
+        # Initialize seed
+        if self.seed is None:
+            self.seed = random.randint(1, 10000)
         
         while True:
             try:
@@ -523,7 +571,8 @@ class CLI:
                     self.console.print("[dim]Empty message, please try again.[/dim]")
                     continue
                 
-                if prompt.lower().startswith('/'):
+                # Handle both / and : prefixed commands
+                if prompt.lower().startswith('/') or prompt.lower().startswith(':'):
                     should_continue = self.handle_command(prompt, history, model)
                     if not should_continue:
                         break
@@ -583,20 +632,24 @@ class CLI:
 
     def handle_command(self, prompt: str, history: List[Dict[str, str]], model: str) -> bool:
         """Handles special commands. Returns False if should exit, True to continue."""
-        parts = prompt.lower().split()
+        # Remove prefix (/ or :) and parse
+        prompt = prompt[1:].strip()
+        parts = prompt.split()
         if not parts:
             return True
             
-        command = parts[0]
+        command = parts[0].lower()
         args = parts[1:]
         
-        if command == "/save":
+        # Save command
+        if command in ["save"]:
             if args:
                 self.save_history(history, args[0])
             else:
-                self.console.print("[bold red]Usage: /save <filename>[/bold red]")
+                self.console.print("[bold red]Usage: :save <filename>[/bold red]")
                 
-        elif command == "/load":
+        # Load command
+        elif command in ["load"]:
             if args:
                 loaded = self.load_history(args[0])
                 if loaded:
@@ -604,13 +657,20 @@ class CLI:
                     history.extend(loaded)
                     self.console.print(f"[green]Loaded {len(loaded)} messages from history[/green]")
             else:
-                self.console.print("[bold red]Usage: /load <filename>[/bold red]")
+                self.console.print("[bold red]Usage: :load <filename>[/bold red]")
+        
+        # Clear screen command
+        elif command in ["clear", "cl"]:
+            self.clear_screen()
+            self.console.print(WELCOME_MSG)
                 
-        elif command == "/clear":
+        # Clear history command
+        elif command in ["clear-history", "clh", "clear-his"]:
             history.clear()
             self.console.print("[bold yellow]Conversation history cleared.[/bold yellow]")
             
-        elif command == "/history":
+        # History command
+        elif command in ["history", "his"]:
             if not history:
                 self.console.print("[dim]No conversation history yet.[/dim]")
             else:
@@ -620,8 +680,76 @@ class CLI:
                     content = msg.get("content", "")
                     preview = content[:50] + "..." if len(content) > 50 else content
                     self.console.print(f"  {i+1}. [{role}]: {preview}")
+        
+        # Seed command
+        elif command in ["seed"]:
+            if args:
+                try:
+                    new_seed = int(args[0])
+                    self.seed = new_seed
+                    random.seed(self.seed)
+                    self.console.print(f"[green]Random seed set to {self.seed}[/green]")
+                except ValueError:
+                    self.console.print(f"[bold red]Invalid seed: {args[0]} is not a valid number[/bold red]")
+            else:
+                self.console.print(f"[cyan]Current random seed: {self.seed}[/cyan]")
+        
+        # Configuration command
+        elif command in ["conf", "config"]:
+            if args:
+                # Parse key=value pairs
+                for arg in args:
+                    if '=' in arg:
+                        key, value = arg.split('=', 1)
+                        key = key.strip().lower()
+                        value = value.strip()
+                        
+                        if key == "temperature":
+                            try:
+                                new_temp = float(value)
+                                if 0.0 <= new_temp <= 2.0:
+                                    self.temperature = new_temp
+                                    self.console.print(f"[green]Temperature set to {self.temperature}[/green]")
+                                else:
+                                    self.console.print("[bold red]Temperature must be between 0.0 and 2.0[/bold red]")
+                            except ValueError:
+                                self.console.print(f"[bold red]Invalid temperature value: {value}[/bold red]")
+                        
+                        elif key == "max_tokens":
+                            try:
+                                new_tokens = int(value)
+                                if new_tokens > 0:
+                                    self.max_tokens = new_tokens
+                                    self.console.print(f"[green]Max tokens set to {self.max_tokens}[/green]")
+                                else:
+                                    self.console.print("[bold red]Max tokens must be positive[/bold red]")
+                            except ValueError:
+                                self.console.print(f"[bold red]Invalid max_tokens value: {value}[/bold red]")
+                        
+                        else:
+                            self.console.print(f"[bold red]Unknown configuration key: {key}[/bold red]")
+                            self.console.print("[dim]Available keys: temperature, max_tokens[/dim]")
+                    else:
+                        self.console.print(f"[bold red]Invalid format: {arg}. Use key=value[/bold red]")
+            else:
+                # Show current configuration
+                self.console.print("[bold]Current Configuration:[/bold]")
+                self.console.print(f"  Temperature: [cyan]{self.temperature}[/cyan]")
+                max_tok = self.max_tokens if self.max_tokens else "unlimited"
+                self.console.print(f"  Max Tokens: [cyan]{max_tok}[/cyan]")
+                self.console.print(f"  Random Seed: [cyan]{self.seed}[/cyan]")
+                self.console.print(f"  Model: [cyan]{model}[/cyan]")
+        
+        # Reset configuration command
+        elif command in ["reset-conf", "reset-config"]:
+            self.temperature = 0.7
+            self.max_tokens = None
+            self.console.print("[green]Configuration reset to defaults[/green]")
+            self.console.print(f"  Temperature: {self.temperature}")
+            self.console.print(f"  Max Tokens: unlimited")
                     
-        elif command == "/temp":
+        # Temperature command (legacy support)
+        elif command in ["temp"]:
             if args:
                 try:
                     new_temp = float(args[0])
@@ -634,9 +762,10 @@ class CLI:
                     self.console.print("[bold red]Invalid temperature value[/bold red]")
             else:
                 self.console.print(f"[cyan]Current temperature: {self.temperature}[/cyan]")
-                self.console.print("[dim]Usage: /temp <value> (0.0-2.0)[/dim]")
+                self.console.print("[dim]Usage: :temp <value> (0.0-2.0)[/dim]")
                 
-        elif command == "/tokens":
+        # Tokens command (legacy support)
+        elif command in ["tokens"]:
             if args:
                 try:
                     new_tokens = int(args[0])
@@ -650,33 +779,24 @@ class CLI:
             else:
                 current = self.max_tokens if self.max_tokens else "unlimited"
                 self.console.print(f"[cyan]Current max tokens: {current}[/cyan]")
-                self.console.print("[dim]Usage: /tokens <number>[/dim]")
+                self.console.print("[dim]Usage: :tokens <number>[/dim]")
                 
-        elif command == "/model":
+        # Model command
+        elif command in ["model"]:
             self.console.print(f"[cyan]Current model: {model}[/cyan]")
             self.console.print("[dim]Note: To change model, restart the chat session[/dim]")
             
-        elif command == "/help":
-            self.console.print("[bold]Available commands:[/bold]")
-            self.console.print("  [cyan]/save <filename>[/cyan]   - Save conversation history to a file")
-            self.console.print("  [cyan]/load <filename>[/cyan]   - Load conversation history from a file")
-            self.console.print("  [cyan]/clear[/cyan]             - Clear the current conversation history")
-            self.console.print("  [cyan]/history[/cyan]           - Show conversation history summary")
-            self.console.print("  [cyan]/temp [value][/cyan]      - Get or set temperature (0.0-2.0)")
-            self.console.print("  [cyan]/tokens [value][/cyan]    - Get or set max tokens")
-            self.console.print("  [cyan]/model[/cyan]             - Show current model")
-            self.console.print("  [cyan]/help[/cyan]              - Show this help message")
-            self.console.print("  [cyan]/exit[/cyan]              - Exit the chat session")
-            self.console.print("\n[bold]Input tips:[/bold]")
-            self.console.print("  - End line with \\ for multiline input")
-            self.console.print("  - Press Ctrl+D to enter multiline mode")
+        # Help command
+        elif command in ["help", "h"]:
+            self.console.print(HELP_MSG)
             
-        elif command == "/exit" or command == "/quit":
+        # Exit commands
+        elif command in ["exit", "quit", "q"]:
             return False
             
         else:
-            self.console.print(f"[bold red]Unknown command: {command}[/bold red]")
-            self.console.print("[dim]Type /help for available commands[/dim]")
+            self.console.print(f"[bold red]Unknown command: :{command}[/bold red]")
+            self.console.print("[dim]Type :help for available commands[/dim]")
         
         return True
 
