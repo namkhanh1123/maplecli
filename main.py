@@ -164,8 +164,8 @@ class ChatClient:
 
         assistant_response = ""
         
-        # Show a subtle status indicator
-        self.console.print("[dim cyan]◌ Thinking...[/dim cyan]", end="")
+        # Show a subtle status indicator using standard print for better control
+        print("◌ Thinking...", end="", flush=True)
         
         for attempt in range(self.max_retries):
             try:
@@ -173,10 +173,10 @@ class ChatClient:
                                  headers=headers, json=data, stream=True, 
                                  timeout=self.timeout) as response:
                     if response.status_code == 200:
-                        # Clear the "Thinking..." message completely
-                        self.console.print("\r" + " " * 50 + "\r", end="")
+                        # Clear the entire line completely
+                        print("\r" + " " * 80 + "\r", end="", flush=True)
                         
-                        # Print the assistant label before streaming
+                        # Print the assistant label before streaming using rich
                         self.console.print("[bold green]Assistant:[/bold green] ", end="")
                         
                         for chunk in response.iter_lines():
