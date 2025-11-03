@@ -164,8 +164,8 @@ class ChatClient:
 
         assistant_response = ""
         
-        # Show thinking message before streaming
-        self.console.print("[bold cyan]Thinking...[/bold cyan]", end="")
+        # Show a subtle status indicator
+        self.console.print("[dim cyan]◌ Thinking...[/dim cyan]", end="", flush=True)
         
         for attempt in range(self.max_retries):
             try:
@@ -173,7 +173,11 @@ class ChatClient:
                                  headers=headers, json=data, stream=True, 
                                  timeout=self.timeout) as response:
                     if response.status_code == 200:
-                        self.console.print("\r" + " " * 20 + "\r", end="")  # Clear thinking message
+                        # Clear the "Thinking..." message completely
+                        self.console.print("\r" + " " * 50 + "\r", end="", flush=True)
+                        
+                        # Print the assistant label before streaming
+                        self.console.print("[bold green]Assistant:[/bold green] ", end="", flush=True)
                         
                         for chunk in response.iter_lines():
                             if chunk:
@@ -429,6 +433,8 @@ class CLI:
         chat_parser = subparsers.add_parser("chat", help="Start an interactive chat session.")
         chat_parser.add_argument("--model", help="The model to use for the chat.")
         chat_parser.add_argument("--system", help="Set a system prompt for the chat session.")
+        chat_parser.add_argument("--lang", "--language", default="en", 
+                                help="Preferred response language (en, zh, etc.). Default: en")
         chat_parser.add_argument("--temperature", type=float, default=0.7, 
                                 help="Sampling temperature (0.0 to 2.0). Default: 0.7")
         chat_parser.add_argument("--max-tokens", type=int, 
@@ -484,7 +490,7 @@ class CLI:
                                          self.console)
             self.temperature = args.temperature
             self.max_tokens = args.max_tokens
-            self.start_chat_session(args.model, args.system)
+            self.start_chat_session(args.model, args.system, args.lang)
         
         elif args.command == "image":
             self.config_manager.load_config()
@@ -520,7 +526,7 @@ class CLI:
         else:
             parser.print_help()
 
-    def start_chat_session(self, model: Optional[str], system_prompt: Optional[str]) -> None:
+    def start_chat_session(self, model: Optional[str], system_prompt: Optional[str], language: str = "en") -> None:
         """Starts and manages the interactive chat session."""
         if not model:
             models = self.chat_client.list_models("/v1/chat/completions")
@@ -547,9 +553,15 @@ class CLI:
                     self.console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
 
         history: List[Dict[str, str]] = []
+        
+        # Add language preference to system prompt if not already provided
         if system_prompt:
             history.append({"role": "system", "content": system_prompt})
             self.console.print(Panel(system_prompt, title="System Prompt", border_style="yellow"))
+        elif language.lower() == "en":
+            # Add implicit English preference for better UX
+            lang_prompt = "Please respond in English."
+            history.append({"role": "system", "content": lang_prompt})
 
         # Display welcome message
         self.clear_screen()
@@ -601,7 +613,8 @@ class CLI:
 
     def get_user_input(self) -> str:
         """Gets user input with support for both single-line and multiline."""
-        self.console.print("[bold cyan]> You:[/bold cyan] ", end="")
+        print()  # Add spacing before prompt
+        self.console.print("[bold blue]You:[/bold blue] ", end="", flush=True)
         
         try:
             first_line = input()
