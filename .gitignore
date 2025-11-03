@@ -1,5 +1,8 @@
 # Generated content
 generated/
+htmlcov/
+.coverage
+.pytest_cache/
 
 # Python
 __pycache__/
@@ -27,6 +30,7 @@ wheels/
 venv/
 ENV/
 env/
+.venv/
 
 # IDE
 .vscode/
@@ -34,6 +38,35 @@ env/
 *.swp
 *.swo
 *~
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+maplecli.log
+logs/
 
 # Config (contains API keys)
 config.json
+*.tmp
+
+# Test artifacts
+.tox/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Security
+.bandit
+.safety
+
+# Development
+.env
+.env.local
+.env.*.local
