@@ -8,7 +8,7 @@ setup(
     author="MapleCLI Team",
     author_email="team@maplecli.dev",
     url="https://github.com/maplecli/maplecli",
-    py_modules=["main"],
+    py_modules=["main", "cli", "chat_client", "code_analyzer", "config_manager", "context_engine", "logger", "query_analyzer", "symbol_resolver"],
     install_requires=[
         "rich>=13.0.0",
         "requests>=2.31.0",
@@ -16,6 +16,12 @@ setup(
         "pathlib2>=2.3.0; python_version<'3.4'",
     ],
     extras_require={
+        "intelligent": [
+            "sentence-transformers>=2.2.0",  # For semantic search
+            "faiss-cpu>=1.7.4",  # For vector search (use faiss-gpu for GPU support)
+            "torch>=2.0.0",  # Required by sentence-transformers
+            "numpy>=1.24.0",
+        ],
         "dev": [
             "pytest>=7.0.0",
             "pytest-asyncio>=0.21.0",
@@ -32,7 +38,7 @@ setup(
     entry_points={
         "console_scripts": [
             "maplecli=main:main",
-            "openaicli=main:main",
+            "openaicli=main:main"
         ],
     },
     python_requires=">=3.8",

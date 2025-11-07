@@ -50,6 +50,11 @@ Desktop.ini
 maplecli.log
 logs/
 
+# Temporary files
+test
+test.json
+test.txt
+
 # Config (contains API keys)
 config.json
 *.tmp

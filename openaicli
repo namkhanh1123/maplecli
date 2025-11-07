@@ -1,2 +1,0 @@
-#!/bin/sh
-python3 /data/data/com.termux/files/home/cli/openaicli/main.py "$@"

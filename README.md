@@ -1,6 +1,23 @@
 # MapleCLI
 
-A secure, feature-rich command-line interface for OpenAI-compatible APIs with advanced code analysis capabilities. 🚀
+A secure, feature-rich command-line interface for OpenAI-compatible APIs with **Augment-level intelligent code analysis**. 🚀
+
+## ✨ NEW: Intelligent Context Retrieval
+
+MapleCLI now features **semantic search and query-aware code understanding** similar to Augment CLI:
+
+- 🧠 **Semantic Search** - Finds relevant code using AI embeddings, not just keywords
+- 🔍 **Symbol Resolution** - Instantly locate function/class definitions and usages
+- 🎯 **Query Intent Classification** - Understands what you're asking and retrieves the right context
+- ⚡ **Fast & Efficient** - Only retrieves relevant code snippets, not entire files
+- 💾 **Smart Caching** - Index built once, reused for instant searches
+
+**[📖 Quick Start Guide](QUICKSTART_INTELLIGENT.md)** | **[📚 Full Documentation](INTELLIGENT_FEATURES.md)**
+
+### Installation with Intelligent Features
+```bash
+pip install -e ".[intelligent]"
+```
 
 ## Features
 
@@ -105,24 +122,33 @@ When in chat mode, use these commands (with `:` or `/` prefix):
 - `:seed 42` - Set random seed for reproducibility
 - `:model` - Show current model
 
-## YOLO Mode - Advanced Code Analysis
+## YOLO Mode - Intelligent Code Analysis
 
 ### Example Workflow
 ```
 :yolo                           # Enable YOLO mode
 :cd ~/my-project                # Switch to your project
-:analyze                        # Scan the codebase
-"What does this codebase do?"   # Ask questions about code
+:analyze                        # Build intelligent semantic index
+"Where is the login function?"  # Ask questions - AI retrieves relevant code automatically
 ```
 
-### What :analyze Does
-- Scans entire project structure
-- Counts lines by file type
-- Auto-reads up to 10 important files (README, package.json, main files, etc.)
-- Injects all code into AI context
-- Provides dependency analysis
-- Calculates complexity metrics
-- Identifies architectural patterns
+### What :analyze Does (NEW - Intelligent Mode)
+- 📊 Scans entire project structure
+- 🧠 **Builds semantic index** with embeddings (functions, classes, methods)
+- 🔍 **Analyzes symbols** and dependencies
+- 📈 Calculates complexity metrics
+- 🏗️ Identifies architectural patterns
+- 💾 **Caches index** for instant future searches
+- ⚡ **Query-aware retrieval** - only fetches relevant code for each question
+
+### Intelligent Query Examples
+```
+"Where is the authenticate function?"     # → Symbol search
+"How does payment processing work?"       # → Semantic search
+"Find all API endpoints"                  # → Pattern search
+"What security issues exist?"             # → Code analysis
+"Explain the database schema"             # → Architecture overview
+```
 
 ### Advanced Analysis Features
 - **Dependency Extraction**: Automatically identifies imports and dependencies
