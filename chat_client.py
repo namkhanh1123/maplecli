@@ -3,6 +3,7 @@ MapleCLI Chat Client for API Communication
 """
 import requests
 import json
+import re
 from typing import List, Dict, Optional, Tuple
 
 from rich.console import Console
@@ -15,6 +16,30 @@ class ChatClient:
         self.console = console
         self.timeout = 30
         self.max_retries = 3
+    
+    @staticmethod
+    def clean_text(text: str) -> str:
+        """Remove emojis and all # * special characters from text."""
+        # Remove emojis
+        emoji_pattern = re.compile("["
+            u"\U0001F600-\U0001F64F"  # emoticons
+            u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+            u"\U0001F680-\U0001F6FF"  # transport & map symbols
+            u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            u"\U00002702-\U000027B0"
+            u"\U000024C2-\U0001F251"
+            u"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+            u"\U0001FA00-\U0001FA6F"  # Chess Symbols
+            u"\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+            u"\U00002600-\U000026FF"  # Miscellaneous Symbols
+            "]+", flags=re.UNICODE)
+        text = emoji_pattern.sub('', text)
+        
+        # Remove ALL # and * characters completely
+        text = text.replace('#', '')
+        text = text.replace('*', '')
+        
+        return text
 
     def list_models(self, model_type: Optional[str] = None) -> List[Dict[str, any]]:
         """Fetches the list of available models from the API."""
@@ -54,16 +79,19 @@ class ChatClient:
             data["max_tokens"] = max_tokens
 
         assistant_response = ""
+        display_buffer = ""
+        in_thinking_block = False
+        
         print()
-        self.console.print("[bold white]┌─[/bold white] [bold magenta]🤖 Assistant[/bold magenta]")
-        self.console.print("[bold white]│[/bold white]  [dim italic]thinking...[/dim italic]", end="", flush=True)
+        self.console.print("[bold white]┌─[/bold white] [bold magenta]Assistant[/bold magenta]")
+        self.console.print("[bold white]|[/bold white]  [dim italic]thinking...[/dim italic]", end="")
         
         for attempt in range(self.max_retries):
             try:
                 with requests.post(f"{self.api_base}/chat/completions", headers=headers, json=data, stream=True, timeout=self.timeout) as response:
                     if response.status_code == 200:
                         print("\r" + " " * 80 + "\r", end="", flush=True)
-                        self.console.print("[bold white]└─➤[/bold white] ", end="")
+                        self.console.print("[bold white]└─>[/bold white] ", end="")
                         
                         for chunk in response.iter_lines():
                             if chunk:
@@ -77,8 +105,22 @@ class ChatClient:
                                     if "choices" in json_chunk and len(json_chunk["choices"]) > 0:
                                         content = json_chunk["choices"][0].get("delta", {}).get("content")
                                         if content:
-                                            assistant_response += content
-                                            print(content, end="", flush=True)
+                                            # Check for thinking tags
+                                            if '<think>' in content or '<thinking>' in content:
+                                                in_thinking_block = True
+                                            if '</think>' in content or '</thinking>' in content:
+                                                in_thinking_block = False
+                                                continue  # Skip this chunk
+                                            
+                                            # Skip content inside thinking blocks
+                                            if in_thinking_block:
+                                                assistant_response += content  # Store but don't display
+                                                continue
+                                            
+                                            # Clean the content before displaying
+                                            cleaned_content = self.clean_text(content)
+                                            assistant_response += cleaned_content
+                                            print(cleaned_content, end="", flush=True)
                                 except json.JSONDecodeError:
                                     pass
                         print()
