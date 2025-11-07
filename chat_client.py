@@ -55,15 +55,15 @@ class ChatClient:
 
         assistant_response = ""
         print()
-        self.console.print("[bold white]┌─[/bold white][bold cyan]Assistant[/bold cyan][bold white]:[/bold white]")
-        self.console.print("[bold white]│[/bold white] [dim]Thinking...[/dim]", end="")
+        self.console.print("[bold white]┌─[/bold white] [bold magenta]🤖 Assistant[/bold magenta]")
+        self.console.print("[bold white]│[/bold white]  [dim italic]thinking...[/dim italic]", end="", flush=True)
         
         for attempt in range(self.max_retries):
             try:
                 with requests.post(f"{self.api_base}/chat/completions", headers=headers, json=data, stream=True, timeout=self.timeout) as response:
                     if response.status_code == 200:
                         print("\r" + " " * 80 + "\r", end="", flush=True)
-                        self.console.print("[bold white]└─>[/bold white] ", end="")
+                        self.console.print("[bold white]└─➤[/bold white] ", end="")
                         
                         for chunk in response.iter_lines():
                             if chunk:
